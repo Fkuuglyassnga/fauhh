@@ -1,0 +1,161 @@
+-- STOP SCRIPT WITH:
+-- _G.FARMING = false
+
+_G.FARMING = true
+
+-------------------------
+-- CONFIG
+-------------------------
+PET_ID = 61642211
+
+mineCoins = {
+    "Christmas2 Small Coin"
+}
+
+mineUnusedCoins = {
+    "Christmas2 Coin",
+    "Christmas2 Coin Stack",
+    "Christmas2 Small Chest",
+    "Christmas2 Chest"
+}
+
+AUTO_REJOIN = true
+REJOIN_INTERVAL = 300
+
+-------------------------
+-- HARD FIX: StatChanged
+-------------------------
+task.spawn(function()
+    local plr = game:GetService("Players").LocalPlayer
+    local gui = plr:WaitForChild("PlayerGui")
+
+    local events = gui:FindFirstChild("Events")
+    if not events then
+        events = Instance.new("Folder")
+        events.Name = "Events"
+        events.Parent = gui
+    end
+
+    if not events:FindFirstChild("StatChanged") then
+        local b = Instance.new("BindableEvent")
+        b.Name = "StatChanged"
+        b.Parent = events
+    end
+end)
+
+-------------------------
+-- SERVICES
+-------------------------
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+
+local player = Players.LocalPlayer
+local Remotes = workspace.__REMOTES
+local CoinsFolder = workspace.__THINGS.Coins
+local Debris = workspace.__DEBRIS
+
+-------------------------
+-- PET LEVEL
+-------------------------
+local PET_LVL = 1
+
+local function updatePetLevel()
+    local ok, stats = pcall(function()
+        return Remotes.Core["Get Stats"]:InvokeServer()
+    end)
+    if not ok or not stats or not stats.Save then return end
+
+    PET_LVL = 1
+
+    for _, pet in pairs(stats.Save.Pets or {}) do
+        if pet.id == PET_ID then
+            PET_LVL = pet.l or 1
+        end
+    end
+
+    for _, hat in pairs(stats.Save.Hats or {}) do
+        for _, pet in pairs(stats.Save.Pets or {}) do
+            if pet.id == PET_ID and pet.h == hat.id then
+                PET_LVL += hat.l or 0
+            end
+        end
+    end
+end
+
+updatePetLevel()
+
+-------------------------
+-- COIN FARM (ALL COINS)
+-------------------------
+task.spawn(function()
+    local lastMine = 0
+
+    while _G.FARMING do
+        local now = os.clock()
+
+        for _, coin in ipairs(CoinsFolder:GetChildren()) do
+            local c = coin:FindFirstChild("CoinName")
+            if not c then continue end
+
+            if (table.find(mineCoins, c.Value)
+            or table.find(mineUnusedCoins, c.Value))
+            and now - lastMine > 0.12 then
+
+                Remotes.Game.Coins:FireServer(
+                    "Mine",
+                    coin.Name,
+                    math.max(PET_LVL * 2 - 1, 1),
+                    PET_ID
+                )
+
+                lastMine = now
+            end
+        end
+
+        if math.random(1, 700) == 1 then
+            updatePetLevel()
+        end
+
+        task.wait(0.1)
+    end
+end)
+
+-------------------------
+-- SAFE DEBRIS CLEAN
+-------------------------
+for _, v in ipairs(Debris:GetChildren()) do
+    if v:IsA("BasePart") then
+        v:Destroy()
+    end
+end
+
+Debris.ChildAdded:Connect(function(v)
+    if _G.FARMING and v:IsA("BasePart") then
+        v:Destroy()
+    end
+end)
+
+-------------------------
+-- AUTO REJOIN
+-------------------------
+if AUTO_REJOIN then
+    task.spawn(function()
+        while _G.FARMING and player and player.Parent do
+            task.wait(REJOIN_INTERVAL)
+
+            pcall(function()
+                if #Players:GetPlayers() <= 1 then
+                    player:Kick("\nRejoining...")
+                    task.wait(1)
+                    TeleportService:Teleport(game.PlaceId, player)
+                else
+                    TeleportService:TeleportToPlaceInstance(
+                        game.PlaceId,
+                        game.JobId,
+                        player
+                    )
+                end
+            end)
+        end
+    end)
+end
